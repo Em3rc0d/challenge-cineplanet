@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpets Evolution</title>
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+
+    <!-- WebSocket Libs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+</head>
+
+<body>
+    <header>
+        <h1>gpets Evolution</h1>
+        <div class="auth-container">
+            <span id="user-info"></span>
+            <button id="login-btn">Login with Google</button>
+            <button id="logout-btn" class="hidden">Logout</button>
+        </div>
+    </header>
+
+    <main>
+        <div id="map"></div>
+
+        <div id="sidebar">
+            <section>
+                <h2>Register Owner</h2>
+                <form id="owner-form">
+                    <input type="text" id="owner-name" placeholder="Full Name" required>
+                    <input type="tel" id="owner-phone" placeholder="Phone Number" required>
+                    <input type="text" id="owner-address" placeholder="Address" required>
+                    <button type="submit">Register</button>
+                </form>
+            </section>
+
+            <section>
+                <h2>Register Pet</h2>
+                <form id="pet-form">
+                    <input type="text" id="pet-name" placeholder="Pet Name" required>
+                    <input type="text" id="pet-breed" placeholder="Breed" required>
+                    <input type="text" id="pet-status" placeholder="Status (e.g., Lost/Found)" required>
+                    <button type="submit">Add Pet</button>
+                </form>
+            </section>
+
+            <section>
+                <h2>My Pets</h2>
+                <div id="pet-list">
+                    <!-- Pets will be listed here -->
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Google Maps API is now loaded dynamically in app.js -->
+    <script src="js/app.js"></script>
+</body>
+
+</html>
