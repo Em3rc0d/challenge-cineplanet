@@ -35,6 +35,7 @@ build/
 # Secrets
 .env
 sAccount.json
+serviceAccountKey.json
 challenge-*.json
 *.p12
 *.key
@@ -43,3 +44,5 @@ challenge-*.json
 *.log
 .DS_Store
 Thumbs.db
+
+src/main/resources/serviceAccountKey.json
