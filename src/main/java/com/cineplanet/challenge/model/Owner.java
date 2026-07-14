@@ -16,4 +16,5 @@ public class Owner {
     private String phone;
     private String address;
     private List<String> petIds;
+    private int score;
 }

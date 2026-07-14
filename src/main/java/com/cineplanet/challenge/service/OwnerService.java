@@ -28,5 +28,47 @@ public class OwnerService {
         return future;
     }
 
-    // Optional: Get Owner
+    public CompletableFuture<Owner> getOwner(String id) {
+        CompletableFuture<Owner> future = new CompletableFuture<>();
+        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("owners");
+        ref.child(id).addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override
+            public void onDataChange(com.google.firebase.database.DataSnapshot dataSnapshot) {
+                future.complete(dataSnapshot.getValue(Owner.class));
+            }
+
+            @Override
+            public void onCancelled(com.google.firebase.database.DatabaseError databaseError) {
+                future.completeExceptionally(databaseError.toException());
+            }
+        });
+        return future;
+    }
+
+    public CompletableFuture<java.util.List<Owner>> getTopOwners(int limit) {
+        CompletableFuture<java.util.List<Owner>> future = new CompletableFuture<>();
+        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("owners");
+
+        ref.orderByChild("score").limitToLast(limit).addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+            @Override
+            public void onDataChange(com.google.firebase.database.DataSnapshot dataSnapshot) {
+                java.util.List<Owner> topOwners = new java.util.ArrayList<>();
+                for (com.google.firebase.database.DataSnapshot snapshot : dataSnapshot.getChildren()) {
+                    Owner owner = snapshot.getValue(Owner.class);
+                    if (owner != null) {
+                        topOwners.add(owner);
+                    }
+                }
+                java.util.Collections.reverse(topOwners);
+                future.complete(topOwners);
+            }
+
+            @Override
+            public void onCancelled(com.google.firebase.database.DatabaseError databaseError) {
+                future.completeExceptionally(databaseError.toException());
+            }
+        });
+
+        return future;
+    }
 }

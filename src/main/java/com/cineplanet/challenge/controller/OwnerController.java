@@ -3,11 +3,14 @@ package com.cineplanet.challenge.controller;
 import com.cineplanet.challenge.model.Owner;
 import com.cineplanet.challenge.service.OwnerService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
@@ -20,5 +23,15 @@ public class OwnerController {
     @PostMapping
     public CompletableFuture<String> createOwner(@RequestBody Owner owner) {
         return ownerService.createOwner(owner);
+    }
+
+    @GetMapping("/{id}")
+    public CompletableFuture<Owner> getOwner(@PathVariable String id) {
+        return ownerService.getOwner(id);
+    }
+
+    @GetMapping("/top")
+    public CompletableFuture<List<Owner>> getTopOwners() {
+        return ownerService.getTopOwners(3); // Fetch top 3 by default
     }
 }

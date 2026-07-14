@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.List;
 
 @Data
 @AllArgsConstructor
@@ -18,4 +19,5 @@ public class Pet {
     private Location location;
     private String status;
     private String imageUrl;
+    private List<Sighting> sightings;
 }

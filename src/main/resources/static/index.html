@@ -1,11 +1,35 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es" class="light">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>gpets Evolution</title>
+    <title>Gpets Tracker Pro</title>
+    
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="css/styles.css">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0ea5e9',
+                        secondary: '#64748b'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
@@ -15,53 +39,179 @@
     <!-- WebSocket Libs -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <!-- Advanced Features CDNs -->
+    <script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 
-<body>
-    <header>
-        <h1>gpets Evolution</h1>
-        <div class="auth-container">
-            <span id="user-info"></span>
-            <button id="login-btn">Login with Google</button>
-            <button id="logout-btn" class="hidden">Logout</button>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans h-screen flex flex-col overflow-hidden transition-colors duration-300">
+    <!-- Header -->
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex justify-between items-center shadow-sm z-10 relative transition-colors duration-300">
+        <div class="flex items-center gap-3 w-1/4">
+            <div class="w-10 h-10 bg-gradient-to-br from-sky-400 to-blue-600 rounded-xl flex items-center justify-center shadow-md shadow-sky-500/20">
+                <i data-lucide="map" class="text-white w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">Gpets <span class="text-sky-500">Tracker</span></h1>
+                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">Plataforma de Monitoreo</p>
+            </div>
+        </div>
+
+        <!-- Search Filters -->
+        <div class="hidden md:flex flex-1 max-w-xl mx-4 items-center gap-2">
+            <div class="relative flex-1">
+                <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+                <input type="text" id="search-input" placeholder="Buscar por nombre o raza..." class="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all text-slate-800 dark:text-slate-100 placeholder:text-slate-400">
+            </div>
+            <select id="status-filter" class="w-36 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all text-slate-800 dark:text-slate-100 cursor-pointer">
+                <option value="all">Todos</option>
+                <option value="Perdido">Perdidos</option>
+                <option value="Encontrado">Encontrados</option>
+                <option value="Adopción">En Adopción</option>
+            </select>
+        </div>
+        
+        <div class="flex items-center justify-end gap-4 w-1/4">
+            <!-- Theme Toggle -->
+            <button id="theme-toggle" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <i id="theme-icon" data-lucide="moon" class="w-5 h-5 text-slate-600 dark:text-slate-300"></i>
+            </button>
+
+            <div id="user-info" class="text-sm font-medium text-slate-600 dark:text-slate-300 hidden items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="user-email-text"></span>
+            </div>
+            <button id="login-btn" class="flex items-center gap-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 rounded-lg text-sm font-medium transition-all">
+                <i data-lucide="log-in" class="w-4 h-4"></i> Admin
+            </button>
+            <button id="logout-btn" class="hidden flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white shadow-md px-4 py-2 rounded-lg text-sm font-medium transition-all">
+                <i data-lucide="log-out" class="w-4 h-4"></i> Salir
+            </button>
         </div>
     </header>
 
-    <main>
-        <div id="map"></div>
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden relative">
+        
+        <!-- Map Container -->
+        <div id="map" class="flex-1 w-full h-full relative z-0"></div>
 
-        <div id="sidebar">
-            <section>
-                <h2>Register Owner</h2>
-                <form id="owner-form">
-                    <input type="text" id="owner-name" placeholder="Full Name" required>
-                    <input type="tel" id="owner-phone" placeholder="Phone Number" required>
-                    <input type="text" id="owner-address" placeholder="Address" required>
-                    <button type="submit">Register</button>
-                </form>
-            </section>
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-96 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full transform transition-transform duration-300 z-10 hidden">
+            
+            <div class="p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                <h2 class="text-lg font-semibold flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                    <i data-lucide="settings-2" class="w-5 h-5 text-sky-500"></i> Panel de Control
+                </h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Registra mascotas y actualiza sus estados.</p>
+            </div>
 
-            <section>
-                <h2>Register Pet</h2>
-                <form id="pet-form">
-                    <input type="text" id="pet-name" placeholder="Pet Name" required>
-                    <input type="text" id="pet-breed" placeholder="Breed" required>
-                    <input type="text" id="pet-status" placeholder="Status (e.g., Lost/Found)" required>
-                    <button type="submit">Add Pet</button>
-                </form>
-            </section>
+            <div class="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-8">
+                
+                <!-- Gamification Section -->
+                <section>
+                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i> Top Rescatistas
+                    </h3>
+                    <div id="top-owners-list" class="space-y-3">
+                        <p class="text-xs text-slate-400 dark:text-slate-500">Cargando ranking...</p>
+                    </div>
+                </section>
 
-            <section>
-                <h2>My Pets</h2>
-                <div id="pet-list">
-                    <!-- Pets will be listed here -->
-                </div>
-            </section>
-        </div>
+                <hr class="border-slate-200 dark:border-slate-800">
+
+                <!-- Register Pet Section -->
+                <section>
+                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="paw-print" class="w-4 h-4 text-slate-400"></i> Nueva Mascota
+                    </h3>
+                    <form id="pet-form" class="space-y-4">
+                        <div class="space-y-1">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Nombre de la Mascota</label>
+                            <input type="text" id="pet-name" placeholder="Ej. Firulais" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" required>
+                        </div>
+                        
+                        <div class="space-y-1">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Raza</label>
+                            <input type="text" id="pet-breed" placeholder="Ej. Golden Retriever" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" required>
+                        </div>
+                        
+                        <div class="space-y-1">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Estado Actual</label>
+                            <select id="pet-status" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" required>
+                                <option value="" disabled selected>Seleccione estado...</option>
+                                <option value="Perdido">Perdido</option>
+                                <option value="Encontrado">Encontrado</option>
+                                <option value="Adopción">En Adopción</option>
+                            </select>
+                        </div>
+
+                        <!-- Image Upload -->
+                        <div class="space-y-1">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Fotografía</label>
+                            <label class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-sky-400 transition-all bg-white dark:bg-slate-800 relative overflow-hidden group">
+                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <i data-lucide="camera" class="w-6 h-6 text-slate-400 mb-2 group-hover:text-sky-500 transition-colors"></i>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400"><span class="font-semibold text-sky-600">Click para subir</span> o tomar foto</p>
+                                </div>
+                                <input id="pet-image" type="file" accept="image/*" class="hidden" />
+                                <img id="image-preview" src="" alt="Preview" class="absolute inset-0 w-full h-full object-cover hidden" />
+                            </label>
+                        </div>
+
+                        <!-- GPS Button -->
+                        <button type="button" id="btn-gps" class="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 mb-2 border border-slate-200 dark:border-slate-700">
+                            <i data-lucide="crosshair" class="w-4 h-4"></i> Usar Mi Ubicación Actual (GPS)
+                        </button>
+
+                        <div id="location-hint" class="bg-sky-50 dark:bg-sky-900/30 border border-sky-100 dark:border-sky-800/50 text-sky-700 dark:text-sky-300 text-xs p-3 rounded-lg flex items-start gap-2 shadow-sm animate-pulse">
+                            <i data-lucide="map-pin" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                            <p>También puedes hacer clic en el mapa para establecer la ubicación exacta manualmente.</p>
+                        </div>
+
+                        <button type="submit" class="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-medium py-2.5 rounded-lg shadow-md shadow-sky-500/20 transition-all flex items-center justify-center gap-2">
+                            <i data-lucide="plus" class="w-4 h-4"></i> Añadir Mascota
+                        </button>
+                    </form>
+                </section>
+
+                <hr class="border-slate-200 dark:border-slate-800">
+
+                <!-- Realtime Feed -->
+                <section class="pb-10">
+                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="activity" class="w-4 h-4 text-slate-400"></i> Feed en Vivo
+                    </h3>
+                    <div id="pet-list" class="space-y-3">
+                        <p class="text-sm text-slate-400 text-center py-4">Esperando actualizaciones...</p>
+                    </div>
+                </section>
+
+            </div>
+        </aside>
+
     </main>
 
-    <!-- Google Maps API is now loaded dynamically in app.js -->
+    <!-- Hidden Poster Template for html2canvas -->
+    <div id="poster-template" class="absolute -left-[9999px] w-[800px] h-[1131px] bg-white text-center flex flex-col items-center p-10 font-sans border-[16px] border-red-600">
+        <h1 class="text-[140px] font-black text-red-600 uppercase tracking-tighter mb-4 leading-none">SE BUSCA</h1>
+        <div class="w-full h-[600px] bg-slate-100 mb-8 border-[12px] border-slate-900 rounded-3xl overflow-hidden relative shadow-2xl">
+            <img id="poster-img" src="" class="w-full h-full object-cover">
+        </div>
+        <h2 id="poster-name" class="text-[90px] font-bold text-slate-900 leading-none mb-4 uppercase">FIRULAIS</h2>
+        <p class="text-4xl text-slate-700 font-semibold mb-8">¡Ayúdame a volver a casa!</p>
+        <div class="flex justify-between items-center w-full mt-auto bg-slate-50 p-8 rounded-3xl border-4 border-slate-200">
+            <div class="text-left flex-1 pl-4">
+                <p class="text-3xl text-slate-500 font-bold mb-4 uppercase tracking-widest">Si me ves, escanea</p>
+                <p class="text-[40px] text-slate-900 font-black leading-tight">Ubicación y contacto en el código QR</p>
+            </div>
+            <div id="poster-qr" class="w-56 h-56 bg-white p-4 rounded-xl border-4 border-slate-200 flex items-center justify-center shrink-0"></div>
+        </div>
+    </div>
+
+    <!-- App JS -->
     <script src="js/app.js"></script>
 </body>
-
 </html>
