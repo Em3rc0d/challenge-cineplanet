@@ -3,12 +3,19 @@ package com.cineplanet.challenge.service;
 import com.cineplanet.challenge.model.Owner;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class OwnerService {
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    private static final String TOP_OWNERS_KEY = "cache:topOwners";
 
     public CompletableFuture<String> createOwner(Owner owner) {
         CompletableFuture<String> future = new CompletableFuture<>();
@@ -47,6 +54,20 @@ public class OwnerService {
 
     public CompletableFuture<java.util.List<Owner>> getTopOwners(int limit) {
         CompletableFuture<java.util.List<Owner>> future = new CompletableFuture<>();
+        
+        // 1. Try to get from Redis
+        try {
+            java.util.List<Owner> cachedTop = (java.util.List<Owner>) redisTemplate.opsForValue().get(TOP_OWNERS_KEY);
+            if (cachedTop != null && !cachedTop.isEmpty()) {
+                future.complete(cachedTop);
+                return future;
+            }
+        } catch (Exception e) {
+            // Log error, fallback to Firebase
+            e.printStackTrace();
+        }
+
+        // 2. Fetch from Firebase
         DatabaseReference ref = FirebaseDatabase.getInstance().getReference("owners");
 
         ref.orderByChild("score").limitToLast(limit).addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
@@ -60,6 +81,14 @@ public class OwnerService {
                     }
                 }
                 java.util.Collections.reverse(topOwners);
+                
+                // Save to Redis with 1 minute TTL
+                try {
+                    redisTemplate.opsForValue().set(TOP_OWNERS_KEY, topOwners, java.time.Duration.ofMinutes(1));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                
                 future.complete(topOwners);
             }
 

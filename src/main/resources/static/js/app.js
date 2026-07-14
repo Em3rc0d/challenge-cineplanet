@@ -2,7 +2,7 @@
 let map;
 let markers = [];
 let markerCluster = null;
-let allPetsData = [];
+let allIncidents = [];
 let selectedLocation = null;
 let selectionMarker = null;
 let isDarkMode = false;
@@ -216,17 +216,15 @@ function setupAuthListeners() {
             userInfo.classList.add("flex");
             userEmailText.textContent = user.email;
 
-            user.getIdToken().then(token => loadPets(token));
+            user.getIdToken().then(token => loadIncidents(token));
             
             // Check if owner exists, if not create basic record for gamification
             user.getIdToken().then(async token => {
                 const res = await fetch(`/api/owners/${user.uid}`);
                 if (!res.ok || !(await res.json())) {
-                    fetch("/api/owners", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                        body: JSON.stringify({ id: user.uid, name: user.displayName || user.email.split('@')[0], email: user.email, score: 0 })
-                    });
+                    if (window.enqueueRequest) {
+                        enqueueRequest("/api/owners", "POST", { "Content-Type": "application/json" }, JSON.stringify({ id: user.uid, name: user.displayName || user.email.split('@')[0], email: user.email, score: 0 }), token);
+                    }
                 }
             });
         } else {
@@ -235,7 +233,7 @@ function setupAuthListeners() {
             sidebar.classList.add("hidden");
             userInfo.classList.add("hidden");
             userInfo.classList.remove("flex");
-            loadPets(null); 
+            loadIncidents(null); 
         }
     });
 
@@ -262,41 +260,77 @@ function setupAuthListeners() {
     });
 }
 
-// Load Pets
-async function loadPets(token) {
+// Load Incidents
+async function loadIncidents(token) {
     try {
         const headers = token ? { "Authorization": `Bearer ${token}` } : {};
-        const response = await fetch("/api/pets", { headers });
-        if (!response.ok) throw new Error("Failed to fetch pets");
+        const response = await fetch("/api/incidents", { headers });
+        if (!response.ok) throw new Error("Failed to fetch incidents");
 
-        allPetsData = await response.json();
+        allIncidents = await response.json();
         applyFilters();
         connectWebSocket();
     } catch (error) {
-        console.error("Error loading pets:", error);
+        console.error("Error loading incidents:", error);
     }
 }
 
 // WebSockets
 let stompClient = null;
+let reconnectAttempts = 0;
+
 function connectWebSocket() {
     if (stompClient !== null) return;
     const socket = new SockJS('/ws-gpets');
     stompClient = Stomp.over(socket);
     stompClient.debug = null; 
+    
+    updateWSStatus('Reconectando');
+    
     stompClient.connect({}, function (frame) {
-        stompClient.subscribe('/topic/pets', function (petC) {
-            handleRealtimeUpdate(JSON.parse(petC.body));
+        reconnectAttempts = 0;
+        updateWSStatus('Online');
+        stompClient.subscribe('/topic/incidents', function (message) {
+            handleRealtimeUpdate(JSON.parse(message.body));
         });
+    }, function(error) {
+        // Falló la conexión o se cayó
+        stompClient = null;
+        reconnectAttempts++;
+        const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000); // Exponential Backoff max 30s
+        updateWSStatus('Reconectando');
+        console.log(`WebSocket caído. Reintentando en ${timeout/1000}s...`);
+        setTimeout(connectWebSocket, timeout);
     });
 }
 
-function handleRealtimeUpdate(pet) {
-    Swal.fire({ toast: true, position: 'bottom-end', icon: 'info', title: `Mascota actualizada: ${pet.name}`, text: `Estado: ${pet.status}`, showConfirmButton: false, timer: 4000 });
+function updateWSStatus(status) {
+    const el = document.getElementById('status-ws');
+    if(el) {
+        if(status === 'Online') {
+            el.innerHTML = `<span class="w-2 h-2 rounded-full bg-green-500"></span> Conectado`;
+            el.className = "flex items-center gap-1 text-green-600";
+        } else {
+            el.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Reconectando`;
+            el.className = "flex items-center gap-1 text-amber-500";
+        }
+    }
+}
+
+function handleRealtimeUpdate(incident) {
+    const typeLabels = {
+        'LOST': 'Mascota Perdida',
+        'FOUND': 'Mascota Encontrada',
+        'SIGHTING': 'Avistamiento',
+        'ADOPTION': 'En Adopción'
+    };
+    const tipo = typeLabels[incident.type] || incident.type;
     
-    const idx = allPetsData.findIndex(p => p.id === pet.id);
-    if (idx !== -1) allPetsData[idx] = pet;
-    else allPetsData.push(pet);
+    Swal.fire({ toast: true, position: 'bottom-end', icon: 'info', title: `Nuevo evento en el radar`, text: tipo, showConfirmButton: false, timer: 4000 });
+    
+    const idx = allIncidents.findIndex(i => i.id === incident.id);
+    if (idx !== -1) allIncidents[idx] = incident;
+    else allIncidents.push(incident);
     
     applyFilters();
     loadTopOwners(); // Update rankings dynamically
@@ -314,54 +348,79 @@ function applyFilters() {
     const searchInput = document.getElementById("search-input");
     const statusSelect = document.getElementById("status-filter");
     if (!searchInput || !statusSelect) {
-        if (allPetsData) { updateMap(allPetsData); updatePetList(allPetsData); }
+        if (allIncidents) { updateMap(allIncidents); updateFeed(allIncidents); }
         return;
     }
-    if (!allPetsData) return;
+    if (!allIncidents) return;
     
     const searchTerm = searchInput.value.toLowerCase();
     const statusFilter = statusSelect.value;
 
-    const filteredPets = allPetsData.filter(pet => {
-        const name = (pet.name || "").toLowerCase();
-        const breed = (pet.breed || "").toLowerCase();
+    const filtered = allIncidents.filter(inc => {
+        const name = (inc.petName || "").toLowerCase();
+        const breed = (inc.petBreed || "").toLowerCase();
         const matchesSearch = name.includes(searchTerm) || breed.includes(searchTerm);
-        const matchesStatus = statusFilter === 'all' || pet.status === statusFilter;
+        
+        let matchesStatus = true;
+        if (statusFilter !== 'all') {
+            // Mapeamos los viejos estados del select al nuevo modelo
+            if (statusFilter === 'Perdido' && inc.type !== 'LOST') matchesStatus = false;
+            if (statusFilter === 'Encontrado' && inc.type !== 'FOUND') matchesStatus = false;
+            if (statusFilter === 'Adopción' && inc.type !== 'ADOPTION') matchesStatus = false;
+        }
+        
         return matchesSearch && matchesStatus;
     });
 
-    updateMap(filteredPets);
-    updatePetList(filteredPets);
+    updateMap(filtered);
+    updateFeed(filtered);
 
     // Auto Zoom
-    if (filteredPets.length === 1 && searchTerm !== "") {
-        const pet = filteredPets[0];
-        if (pet.location && map) {
-            map.panTo({ lat: pet.location.latitude, lng: pet.location.longitude });
+    if (filtered.length === 1 && searchTerm !== "") {
+        const inc = filtered[0];
+        if (inc.location && map) {
+            map.panTo({ lat: inc.location.latitude, lng: inc.location.longitude });
             map.setZoom(16);
-            const marker = markers.find(m => m.petId === pet.id);
+            const marker = markers.find(m => m.incidentId === inc.id);
             if (marker) google.maps.event.trigger(marker, 'click');
         }
     }
 }
 
 // Map Rendering & Clustering
-function updateMap(pets) {
+function updateMap(incidents) {
     clearMarkers();
-    pets.forEach(pet => {
-        if (pet.location) {
+    incidents.forEach(inc => {
+        // Ocultar incidentes resueltos del mapa para evitar saturación
+        if (inc.status === 'CLOSED') return;
+        
+        if (inc.location) {
+            
+            // Dynamic Icon based on Incident Type
+            let iconColor = "#0ea5e9"; // Default SIGHTING (Blue)
+            if (inc.status === 'CLOSED') {
+                iconColor = "#94a3b8"; // Gray for closed
+            } else {
+                if (inc.type === 'LOST') iconColor = "#ef4444"; // Red
+                if (inc.type === 'FOUND') iconColor = "#22c55e"; // Green
+                if (inc.type === 'ADOPTION') iconColor = "#a855f7"; // Purple
+            }
+            
+            const customPin = { ...pinSymbol, fillColor: iconColor };
+
             const marker = new google.maps.Marker({
-                position: { lat: pet.location.latitude, lng: pet.location.longitude },
+                position: { lat: inc.location.latitude, lng: inc.location.longitude },
                 map: map,
-                title: pet.name,
-                petId: pet.id
+                title: inc.petName || 'Mascota',
+                icon: customPin,
+                incidentId: inc.id
             });
 
             // Generate Timeline HTML
             let timelineHtml = '';
-            if (pet.sightings && pet.sightings.length > 0) {
+            if (inc.timeline && inc.timeline.length > 0) {
                 timelineHtml = '<div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700 max-h-32 overflow-y-auto custom-scrollbar"><p class="text-xs font-bold text-slate-500 mb-2">LÍNEA DE TIEMPO:</p>';
-                pet.sightings.forEach(s => {
+                inc.timeline.forEach(s => {
                     const d = new Date(s.date).toLocaleDateString();
                     timelineHtml += `<div class="mb-2 text-xs text-slate-600 dark:text-slate-300">
                         <span class="font-bold">${d} - ${s.status}:</span> ${s.comment}
@@ -370,23 +429,39 @@ function updateMap(pets) {
                 timelineHtml += '</div>';
             }
             
-            const btnPoster = pet.status === 'Perdido' ? 
-                `<button onclick="generatePoster('${pet.id}')" class="mt-2 w-full bg-red-100 hover:bg-red-200 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"><i data-lucide="printer" class="w-3 h-3"></i> Generar Póster</button>` : '';
+            const btnPoster = inc.type === 'LOST' && inc.status === 'OPEN' ? 
+                `<button onclick="generatePoster('${inc.id}')" class="mt-2 w-full bg-red-100 hover:bg-red-200 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"><i data-lucide="printer" class="w-3 h-3"></i> Generar Póster</button>` : '';
+
+            const btnResolve = inc.status === 'OPEN' ?
+                `<button onclick="resolveIncident('${inc.id}')" class="mt-2 w-full bg-green-100 hover:bg-green-200 dark:bg-green-900/40 text-green-700 dark:text-green-300 text-xs font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-3 h-3"></i> Dar por terminado</button>` : '';
+
+            // Map Type to Spanish UI Text
+            const typeLabels = {
+                'LOST': '<span class="bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 px-2 py-0.5 rounded-full">Perdido</span>',
+                'FOUND': '<span class="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 px-2 py-0.5 rounded-full">Encontrado</span>',
+                'SIGHTING': '<span class="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 px-2 py-0.5 rounded-full">Avistamiento</span>',
+                'ADOPTION': '<span class="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 px-2 py-0.5 rounded-full">Adopción</span>'
+            };
+            
+            const statusBadge = inc.status === 'CLOSED' ? 
+                '<span class="bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full text-xs font-bold ml-2">RESUELTO</span>' : '';
 
             const infoWindow = new google.maps.InfoWindow({
                 content: `
                     <div class="w-64 bg-white dark:bg-slate-900 overflow-hidden text-slate-800 dark:text-slate-100">
-                        ${pet.imageUrl ? `<img src="${pet.imageUrl}" class="w-full h-32 object-cover" alt="Foto">` : `<div class="w-full h-32 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><i data-lucide="image-off" class="w-8 h-8"></i></div>`}
+                        ${inc.imageUrl ? `<img src="${inc.imageUrl}" class="w-full h-32 object-cover" alt="Foto">` : `<div class="w-full h-32 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><i data-lucide="image-off" class="w-8 h-8"></i></div>`}
                         <div class="p-4">
-                            <h3 class="font-bold text-lg">${pet.name}</h3>
-                            <p class="text-sm text-slate-500 dark:text-slate-400 mb-2">${pet.breed}</p>
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${pet.status === 'Perdido' ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' : 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'}">
-                                ${pet.status}
-                            </span>
+                            <h3 class="font-bold text-lg flex items-center">${inc.petName || 'Sin Nombre'} ${statusBadge}</h3>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mb-2">${inc.petBreed || 'Desconocido'}</p>
+                            <div class="mb-3 text-xs font-medium">${typeLabels[inc.type] || ''}</div>
+                            <p class="text-xs text-slate-600 dark:text-slate-400 italic mb-2">${inc.description || ''}</p>
                             
-                            <button onclick="updatePetStatus('${pet.id}')" class="mt-4 w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                                <i data-lucide="refresh-cw" class="w-3 h-3"></i> Actualizar Estado
+                            ${inc.status === 'OPEN' ? `
+                            <button onclick="addSightingToIncident('${inc.id}')" class="mt-2 w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                <i data-lucide="eye" class="w-3 h-3"></i> Vi a este animal
                             </button>
+                            ` : ''}
+                            ${btnResolve}
                             ${btnPoster}
                             ${timelineHtml}
                         </div>
@@ -421,17 +496,17 @@ function clearMarkers() {
 }
 
 // Poster Generator
-window.generatePoster = async (petId) => {
-    const pet = allPetsData.find(p => p.id === petId);
-    if(!pet) return;
+window.generatePoster = async (incidentId) => {
+    const inc = allIncidents.find(p => p.id === incidentId);
+    if(!inc) return;
 
     Swal.fire({ title: 'Generando Póster...', allowEscapeKey: false, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
-    document.getElementById('poster-name').textContent = pet.name;
-    document.getElementById('poster-img').src = pet.imageUrl || 'https://via.placeholder.com/600x600?text=SIN+FOTO';
+    document.getElementById('poster-name').textContent = inc.petName || 'Mascota';
+    document.getElementById('poster-img').src = inc.imageUrl || 'https://via.placeholder.com/600x600?text=SIN+FOTO';
     document.getElementById('poster-qr').innerHTML = '';
     
-    // Generate QR (assuming app is deployed at the host domain)
+    // Generate QR
     const url = window.location.href; 
     new QRCode(document.getElementById("poster-qr"), { text: url, width: 180, height: 180 });
     
@@ -439,7 +514,7 @@ window.generatePoster = async (petId) => {
         const template = document.getElementById('poster-template');
         html2canvas(template, { scale: 2 }).then(canvas => {
             const link = document.createElement('a');
-            link.download = `Se_Busca_${pet.name}.png`;
+            link.download = `Se_Busca_${inc.petName || 'Mascota'}.png`;
             link.href = canvas.toDataURL();
             link.click();
             Swal.close();
@@ -447,21 +522,20 @@ window.generatePoster = async (petId) => {
     }, 1000); // Give time for QR and Image to load
 }
 
-// Gamification: Update Status & Add Score
-window.updatePetStatus = async (petId) => {
+// Sighting Update to Incident
+window.addSightingToIncident = async (incidentId) => {
     const user = firebase.auth().currentUser;
     if (!user) {
-        Swal.fire('Atención', 'Debes iniciar sesión para actualizar el estado.', 'warning');
+        Swal.fire('Atención', 'Debes iniciar sesión para reportar.', 'warning');
         return;
     }
 
     const { value: formValues } = await Swal.fire({
-        title: 'Actualizar Estado',
+        title: 'Reportar Avistamiento',
         html:
             '<select id="swal-status" class="w-full px-3 py-2 border rounded-lg text-sm mb-3">' +
-                '<option value="Perdido">Perdido</option>' +
-                '<option value="Encontrado">Encontrado</option>' +
-                '<option value="Adopción">En Adopción</option>' +
+                '<option value="Visto">Lo vi pasar</option>' +
+                '<option value="Encontrado">Lo atrapé / Lo tengo</option>' +
             '</select>' +
             '<textarea id="swal-comment" placeholder="Comentario u observación (ej. Lo vi corriendo por la avenida)..." class="w-full px-3 py-2 border rounded-lg text-sm"></textarea>',
         focusConfirm: false,
@@ -478,70 +552,221 @@ window.updatePetStatus = async (petId) => {
     if (formValues) {
         try {
             const token = await user.getIdToken();
-            const currentPet = allPetsData.find(p => p.id === petId);
-            currentPet.status = formValues.status;
+            // Optimistic UI Update
+            const currentInc = allIncidents.find(p => p.id === incidentId);
             
             // Add Sighting
-            if (!currentPet.sightings) currentPet.sightings = [];
-            currentPet.sightings.push({
+            if (!currentInc.timeline) currentInc.timeline = [];
+            currentInc.timeline.push({
                 date: new Date().toISOString(),
                 status: formValues.status,
                 comment: formValues.comment || 'Sin comentarios',
                 reportedBy: user.uid
             });
             
-            const updateRes = await fetch("/api/pets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(currentPet)
-            });
-
-            if (updateRes.ok) {
-                // Increment Score!
-                const ownerRes = await fetch(`/api/owners/${user.uid}`);
-                if (ownerRes.ok) {
-                    const owner = await ownerRes.json();
-                    if(owner) {
-                        owner.score = (owner.score || 0) + 10; // +10 Points
-                        fetch("/api/owners", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                            body: JSON.stringify(owner)
-                        });
+            // Re-render UI immediately
+            applyFilters();
+            
+            // Enqueue Operation Offline-First
+            if (window.enqueueRequest) {
+                enqueueRequest("/api/incidents", "POST", { "Content-Type": "application/json" }, JSON.stringify(currentInc), token);
+            }
+            
+            // Increment Score!
+            const ownerRes = await fetch(`/api/owners/${user.uid}`);
+            if (ownerRes.ok) {
+                const owner = await ownerRes.json();
+                if(owner) {
+                    owner.score = (owner.score || 0) + 10; // +10 Points
+                    if (window.enqueueRequest) {
+                        enqueueRequest("/api/owners", "POST", { "Content-Type": "application/json" }, JSON.stringify(owner), token);
                     }
                 }
-                
-                Swal.fire('¡Gracias!', 'Has actualizado el estado y ganado 10 puntos de rescatista.', 'success');
-            } else {
-                throw new Error("Update failed");
             }
+            
+            Swal.fire('¡Gracias!', 'Has actualizado el estado optimistamente (Sincronización en proceso).', 'success');
         } catch (error) {
             Swal.fire('Error', 'Hubo un problema actualizando el estado.', 'error');
         }
     }
 }
 
-// UI Rendering
-function updatePetList(pets) {
-    const list = document.getElementById("pet-list");
-    list.innerHTML = "";
-    if (pets.length === 0) {
-        list.innerHTML = '<p class="text-sm text-slate-400 text-center py-4">No hay mascotas registradas.</p>';
+// Resolve Incident
+window.resolveIncident = async (incidentId) => {
+    const user = firebase.auth().currentUser;
+    if (!user) {
+        Swal.fire('Atención', 'Debes iniciar sesión para realizar esta acción.', 'warning');
         return;
     }
-    pets.forEach(pet => {
+    
+    const currentInc = allIncidents.find(p => p.id === incidentId);
+    if (!currentInc) return;
+    
+    if (currentInc.reporterId !== user.uid) {
+        Swal.fire('Acceso denegado', 'Solo la persona que reportó este incidente puede darlo por terminado.', 'error');
+        return;
+    }
+
+    const { isConfirmed } = await Swal.fire({
+        title: '¿Dar por terminado?',
+        text: 'El caso se marcará como Resuelto y dejará de estar activo.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, terminar',
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (isConfirmed) {
+        try {
+            const token = await user.getIdToken();
+            currentInc.status = 'CLOSED';
+            
+            if (!currentInc.timeline) currentInc.timeline = [];
+            currentInc.timeline.push({
+                date: new Date().toISOString(),
+                status: 'Resuelto',
+                comment: 'El incidente ha sido dado por terminado.',
+                reportedBy: user.uid
+            });
+            
+            applyFilters();
+            
+            if (window.enqueueRequest) {
+                enqueueRequest("/api/incidents", "POST", { "Content-Type": "application/json" }, JSON.stringify(currentInc), token);
+            }
+            
+            Swal.fire('Resuelto', 'El incidente se ha cerrado exitosamente.', 'success');
+        } catch (error) {
+            Swal.fire('Error', 'Hubo un problema cerrando el caso.', 'error');
+        }
+    }
+}
+
+// History Modal
+window.openHistoryModal = () => {
+    const tbody = document.getElementById('history-table-body');
+    tbody.innerHTML = '';
+    
+    const closedIncidents = allIncidents.filter(inc => inc.status === 'CLOSED').sort((a, b) => b.timestamp - a.timestamp);
+    
+    if (closedIncidents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-8 text-slate-500">No hay casos resueltos aún.</td></tr>';
+    } else {
+        closedIncidents.forEach(inc => {
+            let timelineHtml = '<ul class="list-disc pl-4 space-y-1 text-xs">';
+            if (inc.timeline) {
+                inc.timeline.forEach(t => {
+                    const d = new Date(t.date).toLocaleDateString();
+                    timelineHtml += `<li><strong>${d} [${t.status}]:</strong> ${t.comment}</li>`;
+                });
+            }
+            timelineHtml += '</ul>';
+            
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors";
+            tr.innerHTML = `
+                <td class="py-3 px-4 align-top w-1/4">
+                    <span class="block text-xs font-mono text-slate-400 mb-1" title="${inc.id}">${inc.id.substring(0, 8)}...</span>
+                    <span class="block text-sm whitespace-nowrap">${new Date(inc.timestamp).toLocaleDateString()}</span>
+                </td>
+                <td class="py-3 px-4 align-top w-1/4">
+                    <div class="flex items-center gap-3">
+                        ${inc.imageUrl ? `<img src="${inc.imageUrl}" class="w-10 h-10 rounded-lg object-cover">` : `<div class="w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center"><i data-lucide="image-off" class="w-4 h-4 text-slate-400"></i></div>`}
+                        <div>
+                            <p class="font-bold">${inc.petName || 'N/A'}</p>
+                            <p class="text-xs text-slate-500">${inc.petBreed || 'N/A'}</p>
+                        </div>
+                    </div>
+                </td>
+                <td class="py-3 px-4 align-top w-1/6">
+                    <span class="px-2 py-1 bg-slate-200 dark:bg-slate-700 rounded-md text-xs font-semibold">${inc.type}</span>
+                </td>
+                <td class="py-3 px-4 align-top w-1/3">
+                    ${timelineHtml}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+    
+    document.getElementById('history-modal').classList.remove('hidden');
+    document.getElementById('history-modal').classList.add('flex');
+    lucide.createIcons();
+}
+
+window.closeHistoryModal = () => {
+    document.getElementById('history-modal').classList.add('hidden');
+    document.getElementById('history-modal').classList.remove('flex');
+}
+
+// Feed UI (Social Media Style)
+function updateFeed(incidents) {
+    const list = document.getElementById("incident-feed");
+    if(!list) return;
+    list.innerHTML = "";
+    
+    if (incidents.length === 0) {
+        list.innerHTML = '<p class="text-sm text-slate-400 text-center py-4">No hay incidentes reportados.</p>';
+        return;
+    }
+    
+    // Sort by newest first
+    const sorted = [...incidents].sort((a,b) => b.timestamp - a.timestamp);
+    
+    sorted.forEach(inc => {
+        // Feed UI configurations per Type
+        let iconHtml = '';
+        let titleHtml = '';
+        let borderClass = '';
+        
+        if (inc.status === 'CLOSED') {
+            iconHtml = '<div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0"><i data-lucide="check-circle" class="w-5 h-5"></i></div>';
+            titleHtml = `🎉 <span class="font-bold">${inc.petName || 'Mascota'}</span>: Caso Resuelto`;
+            borderClass = 'border-l-4 border-l-slate-400 opacity-60';
+        } else if (inc.type === 'LOST') {
+            iconHtml = '<div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0"><i data-lucide="alert-triangle" class="w-5 h-5"></i></div>';
+            titleHtml = `🚨 <span class="font-bold">${inc.petName || 'Mascota'}</span> reportado/a perdido`;
+            borderClass = 'border-l-4 border-l-red-500';
+        } else if (inc.type === 'FOUND') {
+            iconHtml = '<div class="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0"><i data-lucide="search" class="w-5 h-5"></i></div>';
+            titleHtml = `🔍 Mascota encontrada (${inc.petBreed || 'Desconocido'})`;
+            borderClass = 'border-l-4 border-l-green-500';
+        } else if (inc.type === 'SIGHTING') {
+            iconHtml = '<div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0"><i data-lucide="eye" class="w-5 h-5"></i></div>';
+            titleHtml = `👀 Posible avistamiento`;
+            borderClass = 'border-l-4 border-l-blue-500';
+        } else if (inc.type === 'ADOPTION') {
+            iconHtml = '<div class="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center shrink-0"><i data-lucide="heart" class="w-5 h-5"></i></div>';
+            titleHtml = `❤️ <span class="font-bold">${inc.petName || 'Mascota'}</span> busca hogar`;
+            borderClass = 'border-l-4 border-l-purple-500';
+        }
+
+        const timeString = new Date(inc.timestamp).toLocaleDateString();
+
         const div = document.createElement("div");
-        div.className = "p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center gap-3 animate-fade-in shadow-sm hover:shadow-md transition-shadow";
+        div.className = `p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer ${borderClass}`;
+        
         div.innerHTML = `
-            ${pet.imageUrl ? `<img src="${pet.imageUrl}" class="w-12 h-12 rounded-lg object-cover shrink-0">` : `<div class="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0"><i data-lucide="paw-print" class="w-5 h-5 text-slate-400"></i></div>`}
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">${pet.name}</p>
-                <p class="text-xs text-slate-500 dark:text-slate-400 truncate">${pet.breed}</p>
+            <div class="flex items-start gap-3">
+                ${iconHtml}
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-slate-800 dark:text-slate-100">${titleHtml}</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">${inc.description || 'Sin descripción'}</p>
+                    <p class="text-[10px] text-slate-400 mt-2 flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> ${timeString}</p>
+                </div>
+                ${inc.imageUrl ? `<img src="${inc.imageUrl}" class="w-16 h-16 rounded-lg object-cover shrink-0 ml-2">` : ''}
             </div>
-            <span class="inline-flex shrink-0 items-center px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${pet.status === 'Perdido' ? 'bg-red-50 text-red-600 border border-red-100 dark:bg-red-900/30 dark:border-red-800' : 'bg-green-50 text-green-600 border border-green-100 dark:bg-green-900/30 dark:border-green-800'}">
-                ${pet.status}
-            </span>
         `;
+        
+        div.addEventListener("click", () => {
+            if (inc.location && map) {
+                map.panTo({ lat: inc.location.latitude, lng: inc.location.longitude });
+                map.setZoom(16);
+                const marker = markers.find(m => m.incidentId === inc.id);
+                if (marker) google.maps.event.trigger(marker, 'click');
+            }
+        });
+
         list.appendChild(div);
     });
     lucide.createIcons();
@@ -549,8 +774,8 @@ function updatePetList(pets) {
 
 let currentImageBase64 = null;
 function setupImagePreview() {
-    const input = document.getElementById('pet-image');
-    const preview = document.getElementById('image-preview');
+    const input = document.getElementById('incident-image');
+    const preview = document.getElementById('incident-image-preview');
 
     input.addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -579,52 +804,105 @@ function setupImagePreview() {
     });
 }
 
-document.getElementById("pet-form").addEventListener("submit", async (e) => {
+// Modals and New Forms Flow
+window.openIncidentModal = (type) => {
+    document.getElementById('incident-type').value = type;
+    document.getElementById('incident-modal').classList.remove('hidden');
+    document.getElementById('incident-modal').classList.add('flex');
+    
+    // Adjust UI text based on intention
+    const titleEl = document.getElementById('modal-title');
+    const nameField = document.getElementById('field-name');
+    
+    if(type === 'LOST') {
+        titleEl.textContent = 'Perdí mi mascota';
+        nameField.classList.remove('hidden');
+    } else if (type === 'FOUND') {
+        titleEl.textContent = 'Encontré una mascota';
+        nameField.classList.add('hidden');
+    } else if (type === 'SIGHTING') {
+        titleEl.textContent = 'Reportar Avistamiento';
+        nameField.classList.add('hidden');
+    } else if (type === 'ADOPTION') {
+        titleEl.textContent = 'Dar en Adopción';
+        nameField.classList.remove('hidden');
+    }
+}
+
+window.closeIncidentModal = () => {
+    document.getElementById('incident-modal').classList.add('hidden');
+    document.getElementById('incident-modal').classList.remove('flex');
+    document.getElementById('incident-form').reset();
+    currentImageBase64 = null;
+    document.getElementById('incident-image-preview').classList.add('hidden');
+}
+
+// Map Location Select from Modal
+document.getElementById('incident-btn-gps').addEventListener('click', () => {
+    if (navigator.geolocation) {
+        Swal.fire({ title: 'Obteniendo GPS...', didOpen: () => Swal.showLoading() });
+        navigator.geolocation.getCurrentPosition(pos => {
+            Swal.close();
+            placeSelectionMarker(pos.coords.latitude, pos.coords.longitude);
+            document.getElementById('incident-gps-hint').innerHTML = `<span class="text-green-600 font-bold">✓ Ubicación capturada (${pos.coords.latitude.toFixed(3)}, ${pos.coords.longitude.toFixed(3)})</span>`;
+            map.setZoom(16);
+        }, err => Swal.fire('Error', 'No se pudo obtener el GPS', 'error'), { enableHighAccuracy: true });
+    }
+});
+
+// Submit Incident Form
+document.getElementById("incident-submit-btn").addEventListener("click", async (e) => {
     e.preventDefault();
     const user = firebase.auth().currentUser;
     if (!user) { Swal.fire('No Autenticado', 'Inicia sesión para reportar', 'warning'); return; }
-    if (!selectedLocation) { Swal.fire('Ubicación requerida', 'Por favor selecciona la ubicación (Click en GPS o Mapa).', 'info'); return; }
+    if (!selectedLocation) { Swal.fire('Ubicación requerida', 'Por favor usa el GPS o selecciona en el mapa.', 'info'); return; }
 
+    const type = document.getElementById('incident-type').value;
     const token = await user.getIdToken();
-    const petData = {
-        name: document.getElementById("pet-name").value,
-        breed: document.getElementById("pet-breed").value,
-        status: document.getElementById("pet-status").value,
-        ownerId: user.uid,
+    
+    const incidentData = {
+        id: crypto.randomUUID ? crypto.randomUUID() : 'temp-' + Date.now(),
+        type: type,
+        petName: document.getElementById("incident-name").value,
+        petBreed: document.getElementById("incident-breed").value,
+        description: document.getElementById("incident-desc").value,
+        status: "OPEN",
+        reporterId: user.uid,
         location: selectedLocation,
         imageUrl: currentImageBase64,
-        sightings: [{
+        timestamp: Date.now(),
+        timeline: [{
             date: new Date().toISOString(),
-            status: document.getElementById("pet-status").value,
-            comment: "Registro Inicial",
+            status: type === 'LOST' ? 'Perdido' : type === 'FOUND' ? 'Encontrado' : 'Registro',
+            comment: "Registro Inicial del Incidente",
             reportedBy: user.uid
         }]
     };
 
+    // Optimistic UI
+    allIncidents.push(incidentData);
+    applyFilters();
+
     try {
-        const response = await fetch("/api/pets", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(petData) });
-        if (response.ok) {
-            
-            // Add +50 points for registering a new pet
-            const ownerRes = await fetch(`/api/owners/${user.uid}`);
-            if (ownerRes.ok) {
-                const owner = await ownerRes.json();
-                if(owner) {
-                    owner.score = (owner.score || 0) + 50; 
-                    fetch("/api/owners", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(owner) });
+        if (window.enqueueRequest) {
+            enqueueRequest("/api/incidents", "POST", { "Content-Type": "application/json" }, JSON.stringify(incidentData), token);
+        }
+        
+        // Add +50 points
+        const ownerRes = await fetch(`/api/owners/${user.uid}`);
+        if (ownerRes.ok) {
+            const owner = await ownerRes.json();
+            if(owner) {
+                owner.score = (owner.score || 0) + 50; 
+                if (window.enqueueRequest) {
+                    enqueueRequest("/api/owners", "POST", { "Content-Type": "application/json" }, JSON.stringify(owner), token);
                 }
             }
+        }
 
-            Swal.fire('¡Mascota Registrada!', 'Ganas 50 puntos.', 'success');
-            e.target.reset();
-            currentImageBase64 = null;
-            document.getElementById('image-preview').classList.add('hidden');
-            if (selectionMarker) selectionMarker.setMap(null);
-            selectedLocation = null;
-            document.getElementById("location-hint").className = "bg-sky-50 dark:bg-sky-900/30 border border-sky-100 dark:border-sky-800/50 text-sky-700 dark:text-sky-300 text-xs p-3 rounded-lg flex items-start gap-2 shadow-sm animate-pulse";
-            document.getElementById("location-hint").innerHTML = `<i data-lucide="map-pin" class="w-4 h-4 shrink-0 mt-0.5"></i><p>Haz clic en el mapa para establecer la ubicación exacta.</p>`;
-            lucide.createIcons();
-            loadPets(token); 
-        } else Swal.fire('Error', 'Fallo al registrar.', 'error');
+        Swal.fire('¡Incidente Registrado!', 'Reporte publicado en la red (Offline-Ready).', 'success');
+        closeIncidentModal();
+        if (selectionMarker) selectionMarker.setMap(null);
+        selectedLocation = null;
     } catch (error) { Swal.fire('Error', 'Error de red.', 'error'); }
 });

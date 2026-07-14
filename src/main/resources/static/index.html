@@ -11,6 +11,8 @@
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- idb for Offline Sync Queue -->
+    <script src="https://cdn.jsdelivr.net/npm/idb@8/build/umd.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -47,6 +49,8 @@
 </head>
 
 <body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans h-screen flex flex-col overflow-hidden transition-colors duration-300">
+    
+
     <!-- Header -->
     <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex justify-between items-center shadow-sm z-10 relative transition-colors duration-300">
         <div class="flex items-center gap-3 w-1/4">
@@ -98,120 +102,227 @@
         <!-- Map Container -->
         <div id="map" class="flex-1 w-full h-full relative z-0"></div>
 
+        <!-- System Status Panel (Distributed Architecture) OVER THE MAP -->
+        <div id="system-status-panel" class="absolute top-4 left-4 z-50 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 text-xs md:text-sm transition-all duration-300 w-64 overflow-hidden">
+            <button onclick="document.getElementById('status-content').classList.toggle('hidden')" class="w-full flex items-center justify-between p-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                <span class="font-bold dark:text-white flex items-center gap-2"><i data-lucide="server" class="w-4 h-4 text-sky-500"></i> Estado del Sistema</span>
+                <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
+            </button>
+            <div id="status-content" class="px-3 pb-3 flex flex-col space-y-2 text-slate-600 dark:text-slate-300 hidden border-t border-slate-100 dark:border-slate-700 pt-2">
+                <div class="flex items-center justify-between gap-4">
+                    <span>Red (Internet):</span>
+                    <span id="status-network" class="flex items-center gap-1 text-green-600"><span class="w-2 h-2 rounded-full bg-green-500"></span> Online</span>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                    <span>WebSockets:</span>
+                    <span id="status-ws" class="flex items-center gap-1 text-amber-500"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Conectando</span>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                    <span>Cola Sincronización:</span>
+                    <span id="status-sync" class="flex items-center gap-1 font-mono">0 pendientes</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Sidebar -->
         <aside id="sidebar" class="w-96 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full transform transition-transform duration-300 z-10 hidden">
             
             <div class="p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-                <h2 class="text-lg font-semibold flex items-center gap-2 text-slate-800 dark:text-slate-100">
-                    <i data-lucide="settings-2" class="w-5 h-5 text-sky-500"></i> Panel de Control
-                </h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Registra mascotas y actualiza sus estados.</p>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-lg font-semibold flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                            <i data-lucide="radio" class="w-5 h-5 text-red-500 animate-pulse"></i> Panel de Incidentes
+                        </h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">¿Qué está pasando ahora mismo?</p>
+                    </div>
+                    <button onclick="openHistoryModal()" class="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm" title="Ver Historial de Resueltos">
+                        <i data-lucide="history" class="w-4 h-4"></i>
+                    </button>
+                </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-8">
+            <div class="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-8 relative">
                 
-                <!-- Gamification Section -->
+                <!-- Action Buttons (Phase 4 DDD) -->
                 <section>
                     <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i> Top Rescatistas
+                        <i data-lucide="zap" class="w-4 h-4 text-sky-500"></i> Acciones Rápidas
+                    </h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="openIncidentModal('LOST')" class="flex flex-col items-center justify-center p-4 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800/50 rounded-xl transition-all text-red-700 dark:text-red-400 group">
+                            <i data-lucide="alert-triangle" class="w-8 h-8 mb-2 group-hover:scale-110 transition-transform"></i>
+                            <span class="text-xs font-bold text-center">Perdí mi<br>mascota</span>
+                        </button>
+                        <button onclick="openIncidentModal('FOUND')" class="flex flex-col items-center justify-center p-4 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40 border border-green-200 dark:border-green-800/50 rounded-xl transition-all text-green-700 dark:text-green-400 group">
+                            <i data-lucide="search" class="w-8 h-8 mb-2 group-hover:scale-110 transition-transform"></i>
+                            <span class="text-xs font-bold text-center">Encontré una<br>mascota</span>
+                        </button>
+                        <button onclick="openIncidentModal('SIGHTING')" class="flex flex-col items-center justify-center p-4 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 border border-blue-200 dark:border-blue-800/50 rounded-xl transition-all text-blue-700 dark:text-blue-400 group">
+                            <i data-lucide="eye" class="w-8 h-8 mb-2 group-hover:scale-110 transition-transform"></i>
+                            <span class="text-xs font-bold text-center">Reportar<br>Avistamiento</span>
+                        </button>
+                        <button onclick="openIncidentModal('ADOPTION')" class="flex flex-col items-center justify-center p-4 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 border border-purple-200 dark:border-purple-800/50 rounded-xl transition-all text-purple-700 dark:text-purple-400 group">
+                            <i data-lucide="heart" class="w-8 h-8 mb-2 group-hover:scale-110 transition-transform"></i>
+                            <span class="text-xs font-bold text-center">Dar en<br>Adopción</span>
+                        </button>
+                    </div>
+                </section>
+
+                <hr class="border-slate-200 dark:border-slate-800">
+
+                <!-- Realtime Feed (Social Style) -->
+                <section>
+                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="activity" class="w-4 h-4 text-slate-400"></i> Feed Comunitario
+                    </h3>
+                    <div id="incident-feed" class="space-y-4">
+                        <p class="text-sm text-slate-400 text-center py-4">Esperando actualizaciones...</p>
+                    </div>
+                </section>
+
+                <hr class="border-slate-200 dark:border-slate-800">
+
+                <!-- Gamification Section -->
+                <section class="pb-10">
+                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i> Top Héroes
                     </h3>
                     <div id="top-owners-list" class="space-y-3">
                         <p class="text-xs text-slate-400 dark:text-slate-500">Cargando ranking...</p>
                     </div>
                 </section>
-
-                <hr class="border-slate-200 dark:border-slate-800">
-
-                <!-- Register Pet Section -->
-                <section>
-                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <i data-lucide="paw-print" class="w-4 h-4 text-slate-400"></i> Nueva Mascota
-                    </h3>
-                    <form id="pet-form" class="space-y-4">
-                        <div class="space-y-1">
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Nombre de la Mascota</label>
-                            <input type="text" id="pet-name" placeholder="Ej. Firulais" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" required>
-                        </div>
-                        
-                        <div class="space-y-1">
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Raza</label>
-                            <input type="text" id="pet-breed" placeholder="Ej. Golden Retriever" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" required>
-                        </div>
-                        
-                        <div class="space-y-1">
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Estado Actual</label>
-                            <select id="pet-status" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 transition-all bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" required>
-                                <option value="" disabled selected>Seleccione estado...</option>
-                                <option value="Perdido">Perdido</option>
-                                <option value="Encontrado">Encontrado</option>
-                                <option value="Adopción">En Adopción</option>
-                            </select>
-                        </div>
-
-                        <!-- Image Upload -->
-                        <div class="space-y-1">
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Fotografía</label>
-                            <label class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-sky-400 transition-all bg-white dark:bg-slate-800 relative overflow-hidden group">
-                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                    <i data-lucide="camera" class="w-6 h-6 text-slate-400 mb-2 group-hover:text-sky-500 transition-colors"></i>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400"><span class="font-semibold text-sky-600">Click para subir</span> o tomar foto</p>
-                                </div>
-                                <input id="pet-image" type="file" accept="image/*" class="hidden" />
-                                <img id="image-preview" src="" alt="Preview" class="absolute inset-0 w-full h-full object-cover hidden" />
-                            </label>
-                        </div>
-
-                        <!-- GPS Button -->
-                        <button type="button" id="btn-gps" class="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 mb-2 border border-slate-200 dark:border-slate-700">
-                            <i data-lucide="crosshair" class="w-4 h-4"></i> Usar Mi Ubicación Actual (GPS)
-                        </button>
-
-                        <div id="location-hint" class="bg-sky-50 dark:bg-sky-900/30 border border-sky-100 dark:border-sky-800/50 text-sky-700 dark:text-sky-300 text-xs p-3 rounded-lg flex items-start gap-2 shadow-sm animate-pulse">
-                            <i data-lucide="map-pin" class="w-4 h-4 shrink-0 mt-0.5"></i>
-                            <p>También puedes hacer clic en el mapa para establecer la ubicación exacta manualmente.</p>
-                        </div>
-
-                        <button type="submit" class="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-medium py-2.5 rounded-lg shadow-md shadow-sky-500/20 transition-all flex items-center justify-center gap-2">
-                            <i data-lucide="plus" class="w-4 h-4"></i> Añadir Mascota
-                        </button>
-                    </form>
-                </section>
-
-                <hr class="border-slate-200 dark:border-slate-800">
-
-                <!-- Realtime Feed -->
-                <section class="pb-10">
-                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <i data-lucide="activity" class="w-4 h-4 text-slate-400"></i> Feed en Vivo
-                    </h3>
-                    <div id="pet-list" class="space-y-3">
-                        <p class="text-sm text-slate-400 text-center py-4">Esperando actualizaciones...</p>
-                    </div>
-                </section>
-
             </div>
         </aside>
 
     </main>
 
-    <!-- Hidden Poster Template for html2canvas -->
-    <div id="poster-template" class="absolute -left-[9999px] w-[800px] h-[1131px] bg-white text-center flex flex-col items-center p-10 font-sans border-[16px] border-red-600">
-        <h1 class="text-[140px] font-black text-red-600 uppercase tracking-tighter mb-4 leading-none">SE BUSCA</h1>
-        <div class="w-full h-[600px] bg-slate-100 mb-8 border-[12px] border-slate-900 rounded-3xl overflow-hidden relative shadow-2xl">
-            <img id="poster-img" src="" class="w-full h-full object-cover">
-        </div>
-        <h2 id="poster-name" class="text-[90px] font-bold text-slate-900 leading-none mb-4 uppercase">FIRULAIS</h2>
-        <p class="text-4xl text-slate-700 font-semibold mb-8">¡Ayúdame a volver a casa!</p>
-        <div class="flex justify-between items-center w-full mt-auto bg-slate-50 p-8 rounded-3xl border-4 border-slate-200">
-            <div class="text-left flex-1 pl-4">
-                <p class="text-3xl text-slate-500 font-bold mb-4 uppercase tracking-widest">Si me ves, escanea</p>
-                <p class="text-[40px] text-slate-900 font-black leading-tight">Ubicación y contacto en el código QR</p>
+    <!-- Modal Overlay para Incidentes -->
+    <div id="incident-modal" onclick="if(event.target === this) closeIncidentModal()" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+            <div id="modal-header" class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+                <h3 id="modal-title" class="text-lg font-bold text-slate-800 dark:text-slate-100">Registrar</h3>
+                <button type="button" onclick="closeIncidentModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
             </div>
-            <div id="poster-qr" class="w-56 h-56 bg-white p-4 rounded-xl border-4 border-slate-200 flex items-center justify-center shrink-0"></div>
+            
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                <form id="incident-form" class="space-y-4">
+                    <input type="hidden" id="incident-type" value="">
+                    
+                    <div id="field-name" class="space-y-1">
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Nombre de tu mascota</label>
+                        <input type="text" id="incident-name" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800" required>
+                    </div>
+
+                    <div id="field-breed" class="space-y-1">
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Raza / Tipo</label>
+                        <input type="text" id="incident-breed" placeholder="Ej. Labrador, Mestizo..." class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800" required>
+                    </div>
+
+                    <div id="field-desc" class="space-y-1">
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Descripción / Detalles adicionales</label>
+                        <textarea id="incident-desc" rows="3" placeholder="Lleva collar rojo, está asustado..." class="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800" required></textarea>
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Fotografía (Muy importante)</label>
+                        <label class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-all bg-white dark:bg-slate-800 relative overflow-hidden group">
+                            <div class="flex flex-col items-center justify-center">
+                                <i data-lucide="camera" class="w-6 h-6 text-slate-400 mb-1 group-hover:text-sky-500"></i>
+                                <span class="text-xs text-slate-500">Subir foto</span>
+                            </div>
+                            <input id="incident-image" type="file" accept="image/*" class="hidden" />
+                            <img id="incident-image-preview" src="" class="absolute inset-0 w-full h-full object-cover hidden" />
+                        </label>
+                    </div>
+
+                    <div class="space-y-1 pt-2">
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Ubicación</label>
+                        <button type="button" id="incident-btn-gps" class="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs py-2 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2">
+                            <i data-lucide="crosshair" class="w-4 h-4 text-sky-500"></i> Capturar GPS Actual
+                        </button>
+                        <p id="incident-gps-hint" class="text-[10px] text-slate-500 text-center mt-1">O haz clic en el mapa para ubicar.</p>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex gap-3">
+                <button type="button" onclick="closeIncidentModal()" class="w-1/3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-medium py-2.5 rounded-lg shadow-sm transition-all">
+                    Cancelar
+                </button>
+                <button type="button" id="incident-submit-btn" class="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-medium py-2.5 rounded-lg shadow-md transition-all flex items-center justify-center gap-2">
+                    Publicar Incidente
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- History Modal -->
+    <div id="history-modal" onclick="if(event.target === this) closeHistoryModal()" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><i data-lucide="archive" class="w-5 h-5 text-slate-500"></i> Historial de Casos Resueltos</h3>
+                <button type="button" onclick="closeHistoryModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            
+            <div class="p-0 overflow-y-auto custom-scrollbar flex-1 relative">
+                <table class="w-full text-left border-collapse text-sm">
+                    <thead class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 sticky top-0 shadow-sm z-10">
+                        <tr>
+                            <th class="py-3 px-4 font-semibold border-b border-slate-200 dark:border-slate-700">ID / Fecha</th>
+                            <th class="py-3 px-4 font-semibold border-b border-slate-200 dark:border-slate-700">Mascota</th>
+                            <th class="py-3 px-4 font-semibold border-b border-slate-200 dark:border-slate-700">Tipo Original</th>
+                            <th class="py-3 px-4 font-semibold border-b border-slate-200 dark:border-slate-700">Línea de Tiempo (Eventos)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body" class="divide-y divide-slate-200 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-end">
+                <button type="button" onclick="closeHistoryModal()" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-medium py-2 px-6 rounded-lg shadow-sm transition-all">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Poster Template for html2canvas -->
+    <div id="poster-container" class="absolute -left-[9999px] top-0 pointer-events-none">
+        <div id="poster-template" class="w-[600px] h-[800px] bg-white text-center flex flex-col p-8 border-[12px] border-red-600 shadow-2xl relative overflow-hidden font-sans">
+            <!-- Background Watermark/Pattern -->
+            <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: repeating-linear-gradient(45deg, #000 0, #000 2px, transparent 2px, transparent 8px);"></div>
+            
+            <div class="z-10 bg-red-600 text-white py-4 px-8 mb-6 mx-auto w-full inline-block rounded-lg shadow-md transform -rotate-1">
+                <h1 class="text-6xl font-black uppercase tracking-widest leading-none m-0">¡SE BUSCA!</h1>
+            </div>
+            
+            <h2 id="poster-name" class="text-5xl font-extrabold text-slate-800 mb-6 uppercase tracking-tight z-10">Mascota</h2>
+            
+            <div class="border-8 border-white shadow-xl bg-white mb-6 w-[450px] h-[450px] mx-auto rounded-xl overflow-hidden z-10 relative">
+                <img id="poster-img" src="" alt="Mascota" class="w-full h-full object-cover">
+            </div>
+            
+            <div class="flex-1 flex flex-col justify-center items-center z-10">
+                <p class="text-2xl font-bold text-red-600 mb-2 uppercase">¡Ayúdame a volver a casa!</p>
+                <div class="flex items-center gap-6 mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div id="poster-qr" class="bg-white p-2 rounded-lg shadow-sm border border-slate-100"></div>
+                    <div class="text-left">
+                        <p class="text-lg font-bold text-slate-800">Escanea para ver</p>
+                        <p class="text-lg font-bold text-slate-800">ubicación exacta</p>
+                        <p class="text-sm font-medium text-slate-500 mt-1">en Gpets Tracker</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- App JS -->
+    <script src="js/syncManager.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
