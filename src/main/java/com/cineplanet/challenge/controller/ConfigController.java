@@ -12,31 +12,31 @@ import java.util.Map;
 @RequestMapping("/api/config")
 public class ConfigController {
 
-    @Value("${GOOGLE_MAPS_API_KEY}")
+    @Value("${GOOGLE_MAPS_API_KEY:}")
     private String googleMapsApiKey;
 
-    @Value("${FIREBASE_API_KEY}")
+    @Value("${FIREBASE_API_KEY:}")
     private String firebaseApiKey;
 
-    @Value("${FIREBASE_AUTH_DOMAIN}")
+    @Value("${FIREBASE_AUTH_DOMAIN:}")
     private String firebaseAuthDomain;
 
-    @Value("${FIREBASE_DATABASE_URL}")
+    @Value("${FIREBASE_DATABASE_URL:}")
     private String firebaseDatabaseUrl;
 
-    @Value("${FIREBASE_PROJECT_ID}")
+    @Value("${FIREBASE_PROJECT_ID:}")
     private String firebaseProjectId;
 
-    @Value("${FIREBASE_STORAGE_BUCKET}")
+    @Value("${FIREBASE_STORAGE_BUCKET:}")
     private String firebaseStorageBucket;
 
-    @Value("${FIREBASE_MESSAGING_SENDER_ID}")
+    @Value("${FIREBASE_MESSAGING_SENDER_ID:}")
     private String firebaseMessagingSenderId;
 
-    @Value("${FIREBASE_APP_ID}")
+    @Value("${FIREBASE_APP_ID:}")
     private String firebaseAppId;
 
-    @Value("${FIREBASE_MEASUREMENT_ID}")
+    @Value("${FIREBASE_MEASUREMENT_ID:}")
     private String firebaseMeasurementId;
 
     @GetMapping
